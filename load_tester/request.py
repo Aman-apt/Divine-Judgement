@@ -35,45 +35,50 @@ import aiohttp
 # No clue :-
 
 async def make_single_request(url: str, session: aiohttp.ClientSession) -> int:
-    # should we do this . but what would happen here . the while loop will not make a concurrent_request in here i think we should try on the conc
+    # should we do this . but what would happen here .
     async with session.get(url) as response:
-        status = response.status
-        if status == 200:
-            return status
+        success, failure = 0, 0
+    
+        if response.status == 200:
+            return response.status
         else:
-            raise aiohttp.ClientError("The response was either 400 or 500 status code .")
+            pass
 
-
+async def worker(user_count: int):
+    pass
 
 async def make_conc_request(url: str, num_req: int = None) -> int:
     """
     Make a concurrrent request as to the server. Leverage the make_single_request function . 
     """
-    req_count = 0 #count the number of request to the server per second .
+    req_count = 0
 
-    headers = {"User-Agent": ""}
-    timeout = aiohttp.ClientTimeout(total=10)
+    headers = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    }
+
+    task_result = []
+
+    timeout = aiohttp.ClientTimeout(total=20)
     async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-        response = await make_single_request(url, session)
-        if response:
-            req_count += 1
-            return response
-        else:
-            return aiohttp.ServerConnectionError('No 200_OK response from the server')
-    return req_count
+        concurrent_list = [make_single_request(url, session) for _ in range(num_req)] #this is naive appraoch but it works
+        task = asyncio.gather(*concurrent_list)
+        result = await task
+
+        success, failure = 0, 0
+        for status in result:
+            req_count += 1 #count the request 
+            if isinstance(status, Exception):
+                failure += 1
+            elif status == 200:
+                success += 1
+    return (f"Failuer{failure} :: Success {success}")
 
 async def main():
-    url = "https://techcrunch.com"
-    single_request = await make_conc_request(url)
-    
-    num_of_req = 0
-    for req in range(200):
-        task_req = await make_conc_request(url) # hammer that server 200 times? is this concurrent i don't think so .
-        print(task_req)
-        num_of_req += 1
-    return num_of_req
+    url_path = "https://techcruch.com"
+    request_per_test = 10
+    single_request = await make_conc_request(url_path, request_per_test)
+    print(single_request)
 
-
-    
 asyncio.run(main())
 
