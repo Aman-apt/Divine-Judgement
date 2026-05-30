@@ -17,35 +17,42 @@ Capacity -- The point where perfromace degrades or the server crashes
 scalability -- How well the system scales as the concurrent users increases . 
 """
 
-# 1) V1 -- Make 10 or 20k concurrent request to the same server .
-# Solution -- I can make my own server and test on it and well it performs.
-# I can use aiohttp lib to do that .
-# Don't create a sessoin per request. Most likely i can do that in seperate
-# or i can createa a different function to do just that.
+# V2: Now let's start building the real thing ;
+# Q1 — Throughput: Where do i timer in my current code should i put a timer to measure total test duration, 
+# and how do i turn that into requests per second?
+# Q2 — Latency: This one's harder. I need to time each individual request, not the whole batch. 
+# Where in the code does a single request start and end, and what data structure should i use to collect
+# all 2000 individual timings so i can compute an average
 
+from ast import AsyncFunctionDef
 import asyncio
-from sys import exception
+from logging import error
 import aiohttp
 
-# so the concurrenty problem is somewhat solved but we have anther proble which was expected .
-# That is ClientTimeOutError :- As number of request increases time also increases . 
-# How do i solve that . Q1) is this even problem that can be solved or it's is generally expected . ? 
-# If it is solveable i need something ? i don't have any idea how am i going to solve this problem any how ?
-# Well i have 10,000 task running, how many are actually doing network I/O at any single moment ?
-# Not all 10,000. The event loop can only handle what the OS reports as ready via epoll 
-# how do i control exactly how many requests are in-flight at any moment ?
+# Error and Retry Backoff :- S
 
-async def make_single_request(url: str, session: aiohttp.ClientSession, semaphore: asyncio.Semaphore) -> int:
-    # should we do this . but what would happen here .
-    
-    async with semaphore:
-        async with session.get(url) as response:
-            success, failure = 0, 0
-        
-            if response.status == 200:
-                return response.status
-            else:
-                return response.status
+
+async def make_single_request(url: str, session: aiohttp.ClientSession, semaphore: asyncio.Semaphore, max_retries: int = 3) -> int:
+    """
+    This is a base for making concurrent request and it's whole functionality .
+    Depends on the effiecy of this fucntion . 
+    """
+    catched_errors = []
+    for attempt in range(max_retries):
+        try:
+            async with semaphore:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return response.status
+                    else:
+                        catched_errors.append(response.status)
+                        return catched_errors
+        except(aiohttp.ClientError, asyncio.TimeoutError) as e:
+            wait = (2 ** attempt) + (attempt * 0.1)
+            if attempt == max_retries - 1:
+                raise Exception(f"Numbers of retries {max_retries} has been exahusted")
+                print(f"Retry {attempt + 1} after {wait} time: {e}")
+                await asyncio.sleep(wait)
 
 async def worker(user_count: int):
     pass
