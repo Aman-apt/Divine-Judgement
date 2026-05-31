@@ -2,3 +2,6 @@
 .venv
 .python-version
 uv.lock
+http.md
+.git
+
