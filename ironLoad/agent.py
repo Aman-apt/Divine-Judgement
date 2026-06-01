@@ -2,11 +2,22 @@
 # Agent is simulation of a real user like request to the server .
 # It's a single request that returns a status code or error
 
+"""
+Cleaner and better version of the make_single_reqeust().
+Core Functionalites has been implemeted but still there are 2 or 3 things to implement
+"""
+
+from asyncio.timeouts import timeout
+from functools import cache
 import uuid
 import asyncio
 import aiohttp
 from dataclasses import dataclass, field
 import time
+
+class MaxRetriesExhaustedError(Exception):
+    """Raise after the max_retries get's exahusted . """
+    pass
 
 @dataclass
 class RequestResult:
@@ -23,7 +34,7 @@ class RequestResult:
 class RequestAgent:
     """
     Simulate a single user request with retries, latency tracking and concurrency 
-    with async semaphore
+    with async semaphore. 
     """
 
     def __init__(
@@ -35,7 +46,7 @@ class RequestAgent:
         timeout: float = 10.0
     ):
 
-        self.id: int = uuid(uuid)
+        self.id: int = str(uuid.uuid4())
         self.url = url
         self.session = session
         self.max_retries = max_retries
@@ -43,4 +54,64 @@ class RequestAgent:
         self.timeout = aiohttp.ClientTimeout(total=timeout)
 
     async def run(self) -> RequestResult:
-        pass
+        cached_errors = []
+        for attempt in range(self.max_retries):
+            try:
+                start = time.perf_counter()
+                connect_end = None
+
+                async with self.semaphore:
+                    async with self.session.get(url=self.url, timeout=self.timeout) as response:
+                        connect_end = time.perf_counter()
+                        await response.read()
+                        end = time.perf_counter()
+
+                connect_latency_ms = (connect_end - start) * 1000
+                total_latecy_ms = (end - start) * 1000
+
+                status = response.status
+                if 200 <= status < 300:
+                    return RequestResult(
+                        agent_id=self.id,
+                        url=self.url,
+                        status=status,
+                        connect_latency=connect_latency_ms,
+                        latecy_ms=total_latecy_ms,
+                        attempt=attempt + 1,
+                        cached_errors=cached_errors
+                    )
+                else:
+                    cached_errors.append(f"attempt {attempt + 1}: HTTP {status}")
+
+            except(aiohttp.ClientError, asyncio.TimeoutError) as e:
+                cached_errors.append(f"attempt{attempt + 1} error: {e}")
+
+            # Exponential backoff before retrying
+            if attempt < self.max_retries - 1:
+                wait = (2 ** attempt) + (attempt + 0.1)
+                asyncio.sleep(wait)
+
+        raise MaxRetriesExhaustedError(
+            f"{self.max_retries} are exahusted for {self.url}"
+        )
+
+
+# Testing the functionalites of this thing .
+
+async def concurrent_agent(url: str, num_of_agent: int) -> RequestResult:
+    semaphore = asyncio.Semaphore(700)
+    async with aiohttp.ClientSession() as session:
+        request_agent = RequestAgent(url=url, session=session, semaphore=semaphore)
+        task = [request_agent.run() for _ in range(1000)]
+        result = asyncio.gather(*task)
+        data = await result
+        print(data)
+
+async def main():
+    url = "https://techcrunch.com"
+    local_url = "http://localhost:8080" 
+    resp = await concurrent_agent(local_url, 1000)
+    print(resp)
+
+if __name__ == "__main__":
+    asyncio.run(main())
