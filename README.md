@@ -1,2 +1,3 @@
 
-A HTTP Load tester made using a python stdlib . The name is really coll . Divine Judgement . 
+A HTTP Load tester made using a python stdlib . The name should sound cringe or cool depending whether you know "Eleceed" or not .
+
