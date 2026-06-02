@@ -1,14 +1,12 @@
 
 # Agent is simulation of a real user like request to the server .
-# It's a single request that returns a status code or error
+# It's a single request that returns a status code, error, latecy and total latecy
 
 """
 Cleaner and better version of the make_single_reqeust().
 Core Functionalites has been implemeted but still there are 2 or 3 things to implement
 """
 
-from asyncio.timeouts import timeout
-from functools import cache
 import uuid
 import asyncio
 import aiohttp
@@ -66,8 +64,8 @@ class RequestAgent:
                         await response.read()
                         end = time.perf_counter()
 
-                connect_latency_ms = (connect_end - start) * 1000
-                total_latecy_ms = (end - start) * 1000
+                connect_latency_ms = (connect_end - start) # this is milliseconds
+                total_latecy_ms = (end - start)
 
                 status = response.status
                 if 200 <= status < 300:
@@ -88,30 +86,35 @@ class RequestAgent:
 
             # Exponential backoff before retrying
             if attempt < self.max_retries - 1:
+                print(attempt, self.max_retries)
                 wait = (2 ** attempt) + (attempt + 0.1)
-                asyncio.sleep(wait)
+                await asyncio.sleep(wait)
 
         raise MaxRetriesExhaustedError(
             f"{self.max_retries} are exahusted for {self.url}"
         )
+    
+    async def memory(self):
+        pass
 
 
 # Testing the functionalites of this thing .
-
-async def concurrent_agent(url: str, num_of_agent: int) -> RequestResult:
-    semaphore = asyncio.Semaphore(700)
-    async with aiohttp.ClientSession() as session:
-        request_agent = RequestAgent(url=url, session=session, semaphore=semaphore)
-        task = [request_agent.run() for _ in range(1000)]
-        result = asyncio.gather(*task)
-        data = await result
-        print(data)
-
-async def main():
-    url = "https://techcrunch.com"
-    local_url = "http://localhost:8080" 
-    resp = await concurrent_agent(local_url, 1000)
-    print(resp)
-
 if __name__ == "__main__":
+
+    async def concurrent_agent(url: str, num_of_agent: int) -> RequestResult:
+        semaphore = asyncio.Semaphore(700)
+        async with aiohttp.ClientSession() as session:
+            request_agent = RequestAgent(url=url, session=session, semaphore=semaphore)
+            task = [request_agent.run() for _ in range(num_of_agent)]
+            result = asyncio.gather(*task)
+            data = await result
+        return (f"{data[-1]}, Number of Agents: {num_of_agent} .")
+
+    async def main():
+        url = "https://techcrunch.com"
+        local_url = "http://localhost:8080" 
+        num_of_agent = 100000
+        resp = await concurrent_agent(local_url, num_of_agent)
+        print(resp)
+
     asyncio.run(main())
