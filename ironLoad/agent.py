@@ -12,6 +12,10 @@ import asyncio
 import aiohttp
 from dataclasses import dataclass, field
 import time
+from math import floor, ceil
+from statistics import mean
+from typing import Sequence
+
 
 class MaxRetriesExhaustedError(Exception):
     """Raise after the max_retries get's exahusted . """
@@ -86,34 +90,100 @@ class RequestAgent:
 
             # Exponential backoff before retrying
             if attempt < self.max_retries - 1:
-                print(attempt, self.max_retries)
                 wait = (2 ** attempt) + (attempt + 0.1)
                 await asyncio.sleep(wait)
 
         raise MaxRetriesExhaustedError(
             f"{self.max_retries} are exahusted for {self.url}"
         )
+
+    async def stop(self):
+        """Stop the agent in the middle of excution. """
+        pass
     
     async def memory(self):
+        """Compute the memory usage of and based on time latnecy """
+        pass
+
+    async def send(self): # I will implement it later
+        """
+        Instead of just testing with get request we would be able to use laod tester for the PUT and POST as well.
+        """
         pass
 
 
 # Testing the functionalites of this thing .
 if __name__ == "__main__":
 
+    def percentile(values: Sequence[float], p: flaot) -> flaot:
+        if not values:
+            raise ValueError("Cannot compute values on the empty list")
+        if not 0 <= p <= 100:
+            raise ValueError("Perecentile must be between 0 to 100")
+
+        data = [float(v) for v in values]
+        n = len(data)
+
+        if n == 1:
+            return data[0] #return the first element
+        
+        # Linear interploation
+        rank = (p / 100.0) * (n - 1)
+        high = floor(rank)
+        low = floor(rank)
+
+        if low == high: # if they same exact value
+            return low
+            
+        return data[low] + (data[high] - data[low]) * (rank - low)
+
     async def concurrent_agent(url: str, num_of_agent: int) -> RequestResult:
-        semaphore = asyncio.Semaphore(700)
+        semaphore = asyncio.Semaphore(min(700, num_of_agent))
         async with aiohttp.ClientSession() as session:
             request_agent = RequestAgent(url=url, session=session, semaphore=semaphore)
             task = [request_agent.run() for _ in range(num_of_agent)]
-            result = asyncio.gather(*task)
-            data = await result
-        return (f"{data[-1]}, Number of Agents: {num_of_agent} .")
+            results = await asyncio.gather(*task, return_exceptions=True)
+
+
+        latencies = []
+        failures = []
+
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
+                failures.append((idx, str(result)))
+                continue
+
+            latency = getattr(result, "connect_latency", None)
+            if latency is None:
+                failures.append((idx, latency))
+                continue
+
+            try:
+                latencies.append(float(latency))
+            except (TypeError, ValueError):
+                failures.append((idx, f"Invalid Latency value{latency!r}"))
+        if not latencies:
+            raise RuntimeError('No Latencies were found')
+
+        stats = {
+        "count": len(latencies),
+        "failed": len(failures),
+        "min": min(latencies),
+        "max": max(latencies),
+        "avg": mean(latencies),
+        "p50": percentile(latencies, 50),
+        "p90": percentile(latencies, 90),
+        "p95": percentile(latencies, 95),
+        "p99": percentile(latencies, 99),
+        }
+
+        return stats
+
 
     async def main():
         url = "https://techcrunch.com"
         local_url = "http://localhost:8080" 
-        num_of_agent = 100000
+        num_of_agent = 1000
         resp = await concurrent_agent(local_url, num_of_agent)
         print(resp)
 
