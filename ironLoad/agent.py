@@ -23,14 +23,14 @@ class MaxRetriesExhaustedError(Exception):
 
 @dataclass
 class RequestResult:
-    agent_id: str
+    success: int
     url: str
-    status: int
-    latecy_ms: float
-    connect_latency: float
-    attempt: int
+    status_code: int
+    connect_latency_ms: float
+    ttfb_ms: float # time before the first bytes
+    total_latency_ms: float
+    timestamp: float
     error : str = None
-    cached_errors: list[str] = None
 
 
 class RequestAgent:
@@ -68,22 +68,26 @@ class RequestAgent:
                         await response.read()
                         end = time.perf_counter()
 
-                connect_latency_ms = (connect_end - start) # this is milliseconds
-                total_latecy_ms = (end - start)
-
-                status = response.status
-                if 200 <= status < 300:
+                connect_latency_ms = (connect_end - start) * 1000 # <-- Miliseconds.
+                total_latency_ms = (end - start) * 1000
+                
+                success, failure = 0, 0
+                status_code = response.status
+                if 200 <= status_code < 300:
+                    success += 1
                     return RequestResult(
-                        agent_id=self.id,
                         url=self.url,
-                        status=status,
+                        status_code=status_code,
                         connect_latency=connect_latency_ms,
-                        latecy_ms=total_latecy_ms,
-                        attempt=attempt + 1,
-                        cached_errors=cached_errors
+                        ttfb_ms=ttfb_ms,
+                        total_latency_ms=total_latency_ms,
+                        timestamp=start,
+                        success=success,
+                        error=cached_errors
                     )
                 else:
-                    cached_errors.append(f"attempt {attempt + 1}: HTTP {status}")
+                    failure += 1
+                    cached_errors.append(f"attempt {attempt + 1}: HTTP {status_code}-- Failure:{failure}")
 
             except(aiohttp.ClientError, asyncio.TimeoutError) as e:
                 cached_errors.append(f"attempt{attempt + 1} error: {e}")
