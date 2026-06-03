@@ -21,6 +21,11 @@ class LoadTest:
     A LoadTest class that spawns N RequestAgent coroutines with asyncio.gather, collects
     all RequestResult , then computes p50/p95/p99 latency, requests/sec and error rate.
     """
+    # Ohh! i think i have made a huge mistake here , i can better this desgin
+    # with the class i was reading the sourcecode of the locust and i got this idea 
+    # their codebase is elegant i made this like a fool passing everything in class
+    # instead of we can pass the url, agents_count and everything to the methods they belong
+
 
     def __init__(
         self,
@@ -68,13 +73,18 @@ class LoadTest:
 
         return data[low] + (data[high] - data[low]) * (rank - low)
 
-    @staticmethod # Fixed the serializable error in dumping json
+    @staticmethod # Error: cannot serialize result of class list
     def _result_to_dict(result: Any) -> dict[str]:
         if is_dataclass(result):
             return asdict(result)
         if hasattr(result, "__dict__"):
             return dict(result.__dict__)
+
         raise TypeError(f"Cannot serialize result of {type(result)!r}")
+    
+    async def spawn_agents(self):
+        """This is a better way to do it instead of making spagettin in one func"""
+        pass
 
     async def load_manager(self) -> RequestResult:
         headers = {
@@ -130,8 +140,9 @@ class LoadTest:
 
             if extension == ".json":
                 with open(self.output_path, 'w') as f:
-                    serialize_data = self._result_to_dict(results)
-                    json.dump(serialize_data, f, indent=4)
+                    for result in result:
+                        serialize_data = self._result_to_dict(results)
+                        json.dump(serialize_data, f, indent=4)
 
             if extension == ".csv":
                 with open(self.output_path, "w", newline="") as f:
