@@ -10,7 +10,7 @@ Core Functionalites has been implemeted but still there are 2 or 3 things to imp
 import uuid
 import asyncio
 import aiohttp
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import time
 from math import floor, ceil
 from statistics import mean
@@ -23,14 +23,14 @@ class MaxRetriesExhaustedError(Exception):
 
 @dataclass
 class RequestResult:
-    success: int
+    success: bool
     url: str
     status_code: int
     connect_latency_ms: float
-    ttfb_ms: float # time before the first bytes
+    ttfb_ms: float | None # time before the first bytes
     total_latency_ms: float
     timestamp: float
-    error : str = None
+    error : list[str] = None
 
 
 class RequestAgent:
@@ -70,24 +70,22 @@ class RequestAgent:
 
                 connect_latency_ms = (connect_end - start) * 1000 # <-- Miliseconds.
                 total_latency_ms = (end - start) * 1000
-                
-                success, failure = 0, 0
+    
+                success = "Got it"
                 status_code = response.status
                 if 200 <= status_code < 300:
-                    success += 1
                     return RequestResult(
                         url=self.url,
                         status_code=status_code,
-                        connect_latency=connect_latency_ms,
-                        ttfb_ms=ttfb_ms,
+                        connect_latency_ms=connect_latency_ms,
+                        ttfb_ms=None,
                         total_latency_ms=total_latency_ms,
                         timestamp=start,
                         success=success,
                         error=cached_errors
                     )
                 else:
-                    failure += 1
-                    cached_errors.append(f"attempt {attempt + 1}: HTTP {status_code}-- Failure:{failure}")
+                    cached_errors.append(f"attempt {attempt + 1}: HTTP {status_code}")
 
             except(aiohttp.ClientError, asyncio.TimeoutError) as e:
                 cached_errors.append(f"attempt{attempt + 1} error: {e}")
@@ -125,7 +123,7 @@ if __name__ == "__main__":
         if not 0 <= p <= 100:
             raise ValueError("Perecentile must be between 0 to 100")
 
-        data = [float(v) for v in values]
+        data = sorted([float(v) for v in values])
         n = len(data)
 
         if n == 1:
@@ -134,7 +132,7 @@ if __name__ == "__main__":
         # Linear interploation
         rank = (p / 100.0) * (n - 1)
         high = floor(rank)
-        low = floor(rank)
+        low = ceil(rank)
 
         if low == high: # if they same exact value
             return low
@@ -142,6 +140,9 @@ if __name__ == "__main__":
         return data[low] + (data[high] - data[low]) * (rank - low)
 
     async def concurrent_agent(url: str, num_of_agent: int) -> RequestResult:
+        if num_of_agent <= 0:
+            raise ValueError("Cannot Operate on Negative values")
+
         semaphore = asyncio.Semaphore(min(700, num_of_agent))
         async with aiohttp.ClientSession() as session:
             request_agent = RequestAgent(url=url, session=session, semaphore=semaphore)
@@ -157,10 +158,12 @@ if __name__ == "__main__":
                 failures.append((idx, str(result)))
                 continue
 
-            latency = getattr(result, "connect_latency", None)
+            latency = getattr(result, "connect_latency_ms", None)
             if latency is None:
                 failures.append((idx, latency))
                 continue
+
+            success = result.success
 
             try:
                 latencies.append(float(latency))
@@ -170,6 +173,7 @@ if __name__ == "__main__":
             raise RuntimeError('No Latencies were found')
 
         stats = {
+        "succes": success,
         "count": len(latencies),
         "failed": len(failures),
         "min": min(latencies),
